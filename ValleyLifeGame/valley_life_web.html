@@ -587,14 +587,9 @@ class Game {
   }
   fishUp() {
     const f = this.fish; if (!f || f.s !== "charge") return;
-    const p = this.castPower(), d = 40 + p*240; let ang = this.aimAngle();
-    if (this.touch && !isWater(this.tileAt(this.px + Math.cos(ang)*d, this.py + Math.sin(ang)*d))) {
-      // touch helper: swing the cast toward the closest water direction
-      let best = null, bd = 9; for (let k = 0; k < 24; k++) { const a = k*Math.PI/12; if (isWater(this.tileAt(this.px + Math.cos(a)*d, this.py + Math.sin(a)*d))) { const diff = Math.abs(Math.atan2(Math.sin(a-ang), Math.cos(a-ang))); if (diff < bd) { bd = diff; best = a; } } }
-      if (best !== null) ang = best;
-    }
-    const bx = this.px + Math.cos(ang)*d, by = this.py + Math.sin(ang)*d;
-    if (isWater(this.tileAt(bx, by))) {
+    const p = this.castPower(), d = 40 + p*240, spot = this.findCastSpot(this.aimAngle(), d);
+    if (spot) {
+      const [bx, by] = spot;
       const zone = this.zone.get(key(Math.floor(bx/TS), Math.floor(by/TS))) || "river";
       const bait = this.take("bait", 1) !== null;
       const lure = RODS[this.tools.rod][5] * (this.has("fish3") ? 0.7 : 1) * (this.rain > 0 ? 0.75 : 1);
@@ -602,7 +597,21 @@ class Game {
       this.burst(bx, by, [200,230,255], 10, 90);
       if (p > 0.88) this.floatText(this.px, this.py-40, "PERFECT CAST! +luck", GOLD);
       if (bait) this.floatText(this.px, this.py-60, "Worm bait used +luck", PINK, 20);
-    } else { this.fish = null; this.note(this.touch ? "Missed the water! Stand closer and face the water." : "Missed the water! Point your MOUSE at water.", ORANGE); }
+    } else { this.fish = null; this.note(this.touch ? "Missed the water! Stand closer and face the water." : "No water there! Point your MOUSE toward water.", ORANGE); }
+  }
+  findCastSpot(ang, d) {
+    // Forgiving cast: the water tile centre closest to where the cast was aimed, or null.
+    const wc = (x, y) => { const tx = Math.floor(x/TS), ty = Math.floor(y/TS); return (tx >= 0 && tx < MW && ty >= 0 && ty < MH && isWater(this.tiles[ty][tx])) ? [tx*TS+16, ty*TS+16] : null; };
+    const tx = this.px + Math.cos(ang)*d, ty = this.py + Math.sin(ang)*d, pts = [[tx, ty]];
+    for (const r of [16, 32, 48, 64]) for (let k = 0; k < 12; k++) pts.push([tx + Math.cos(k*Math.PI/6)*r, ty + Math.sin(k*Math.PI/6)*r]);
+    for (let s = 20; s < d + 72; s += 8) pts.push([this.px + Math.cos(ang)*s, this.py + Math.sin(ang)*s]);
+    let best = null, bd = 1e9;
+    for (const [x, y] of pts) { const c = wc(x, y); if (c) { const dd = dist(c[0], c[1], tx, ty); if (dd < bd) { bd = dd; best = c; } } }
+    if (best) return best;
+    const maxK = this.touch ? 36 : 14; // touch: search all the way around; mouse: up to 70 degrees off the aim
+    for (let k = 1; k <= maxK; k++) for (const sg of [1, -1]) { const a = ang + sg*k*Math.PI/36;
+      for (let s = 40; s < 300; s += 12) { const c = wc(this.px + Math.cos(a)*s, this.py + Math.sin(a)*s); if (c) return c; } }
+    return null;
   }
   rollFish(zone, perfect, bait) {
     const night = this.isNight();
@@ -641,9 +650,10 @@ class Game {
 
   // -------------------------------------------------------------- chop / mine / dig
   chopZone() { return 0.14 + (this.has("wood3") ? 0.1 : 0) + (this.touch ? 0.04 : 0); }
-  needle() { return (Math.sin(this.t*3.4) + 1)/2; }
+  needle(t = this.t) { const x = (t*0.85) % 2; return x < 1 ? x : 2 - x; } // even speed, not a sine wave
+  needleInZone() { for (let k = 0; k < 7; k++) if (Math.abs(this.needle(this.t - k*0.02) - 0.5) < this.chopZone()/2) return true; return false; }
   chop(t) {
-    const crit = Math.abs(this.needle() - 0.5) < this.chopZone()/2;
+    const crit = this.needleInZone(); // counts if it was in the green any time in the last 0.12s
     const dmg = AXES[this.tools.axe][3] * (this.has("wood1") ? 1.5 : 1) * (crit ? 3 : 1);
     t.hp -= dmg; const x = t.x*TS+16, y = t.y*TS+10;
     this.burst(x, y, [140,100,60], 6, 90, 0.5, 3); this.burst(x, y-20, TREES[t.t][3], 5, 70, 0.6, 3);

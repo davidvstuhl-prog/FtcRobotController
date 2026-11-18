@@ -1113,8 +1113,9 @@ class Game:
         mx, my = self.mouse_world()
         ang = math.atan2(my - self.py, mx - self.px)
         d = 40 + p * 240
-        bx, by = self.px + math.cos(ang) * d, self.py + math.sin(ang) * d
-        if self.tile_at(bx, by) in WATER:
+        spot = self.find_cast_spot(ang, d)
+        if spot:
+            bx, by = spot
             zone = self.zone.get((int(bx // TS), int(by // TS)), "river")
             bait = self.take("bait", 1) is not None
             lure = RODS[self.tools["rod"]][5] * (0.7 if self.has("fish3") else 1) * (0.75 if self.rain > 0 else 1)
@@ -1126,7 +1127,42 @@ class Game:
                 self.float_text(self.px, self.py - 60, "Worm bait used +luck", PINK, 20)
         else:
             self.fish = None
-            self.note("Missed the water! Point your MOUSE at water.", ORANGE)
+            self.note("No water there! Point your MOUSE toward water.", ORANGE)
+
+    def find_cast_spot(self, ang, d):
+        """Forgiving cast: return the water tile centre closest to where the cast was aimed, or None."""
+        def water_center(x, y):
+            tx, ty = int(x // TS), int(y // TS)
+            if 0 <= tx < MW and 0 <= ty < MH and self.tiles[ty][tx] in WATER:
+                return tx * TS + 16.0, ty * TS + 16.0
+            return None
+        tx_, ty_ = self.px + math.cos(ang) * d, self.py + math.sin(ang) * d
+        best, bd = None, 1e9
+        # 1) the landing point, a ring around it, and every point along the cast line
+        pts = [(tx_, ty_)]
+        for r in (16, 32, 48, 64):
+            for k in range(12):
+                a = k * math.pi / 6
+                pts.append((tx_ + math.cos(a) * r, ty_ + math.sin(a) * r))
+        for s in range(20, int(d) + 72, 8):
+            pts.append((self.px + math.cos(ang) * s, self.py + math.sin(ang) * s))
+        for x, y in pts:
+            c = water_center(x, y)
+            if c:
+                dd = dist(c[0], c[1], tx_, ty_)
+                if dd < bd:
+                    best, bd = c, dd
+        if best:
+            return best
+        # 2) still nothing: sweep up to 70 degrees either side of the aim
+        for k in range(1, 15):
+            for sgn in (1, -1):
+                a = ang + sgn * k * math.radians(5)
+                for s in range(40, 300, 12):
+                    c = water_center(self.px + math.cos(a) * s, self.py + math.sin(a) * s)
+                    if c:
+                        return c
+        return None
 
     def roll_fish(self, zone, perfect, bait):
         night = self.is_night()
@@ -1204,11 +1240,14 @@ class Game:
     def chop_zone(self):
         return 0.14 + (0.1 if self.has("wood3") else 0)
 
-    def needle(self):
-        return (math.sin(self.t * 3.4) + 1) / 2
+    def needle(self, t=None):
+        # Even speed back and forth (a sine wave rushed through the middle and made PERFECT hard to hit).
+        x = ((self.t if t is None else t) * 0.85) % 2
+        return x if x < 1 else 2 - x
 
     def chop(self, t):
-        crit = abs(self.needle() - 0.5) < self.chop_zone() / 2
+        # Count the hit if the needle was in the green at any moment in the last 0.12s (makes up for input lag).
+        crit = any(abs(self.needle(self.t - k * 0.02) - 0.5) < self.chop_zone() / 2 for k in range(7))
         dmg = AXES[self.tools["axe"]][3] * (1.5 if self.has("wood1") else 1) * (3 if crit else 1)
         t["hp"] -= dmg
         x, y = t["x"] * TS + 16, t["y"] * TS + 10
