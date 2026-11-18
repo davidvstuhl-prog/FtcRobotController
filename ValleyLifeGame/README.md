@@ -48,3 +48,9 @@ click **New game** on the title screen, to start over.
 - **Pets**: 3 eggs, 18 pets in 6 rarities, a hatch animation, equip slots, pet bonuses
 - **Gem store**: premium currency, potions, VIP, a limited-time starter pack. **All real-money prices are fake
   placeholders. Nothing is ever charged.**
+
+## Browser version
+
+`valley_life_web.html` is the same game in JavaScript. Double-click it to play in any browser; nothing to install.
+When it starts, it asks whether you're on a keyboard + mouse or a touchscreen. The joystick and big buttons only
+appear in touchscreen mode, and you can switch from the pause menu. Progress saves in that browser.
