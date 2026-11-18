@@ -167,9 +167,9 @@ QUAL = [("Burnt", 0.5, (90, 70, 60)), ("Good", 1.0, WHITE), ("Perfect", 1.6, GOL
 QMULT = {q[0]: q[1] for q in QUAL}
 
 # tools: name, coin price, gem price, stats...
-RODS = [("Twig Rod", 0, 0, 0.0, 0.20, 1.00), ("Bamboo Rod", 250, 0, 0.15, 0.23, 0.90),
-        ("Fiberglass Rod", 1200, 0, 0.35, 0.26, 0.80), ("Carbon Rod", 5000, 0, 0.70, 0.30, 0.70),
-        ("Mythril Rod", 20000, 0, 1.20, 0.34, 0.60), ("Celestial Rod", 0, 400, 2.50, 0.40, 0.45)]
+RODS = [("Twig Rod", 0, 0, 0.0, 0.27, 1.00), ("Bamboo Rod", 250, 0, 0.15, 0.29, 0.90),
+        ("Fiberglass Rod", 1200, 0, 0.35, 0.31, 0.80), ("Carbon Rod", 5000, 0, 0.70, 0.33, 0.70),
+        ("Mythril Rod", 20000, 0, 1.20, 0.36, 0.60), ("Celestial Rod", 0, 400, 2.50, 0.42, 0.45)]
 AXES = [("Stone Axe", 0, 0, 1.0), ("Copper Axe", 200, 0, 2.0), ("Iron Axe", 900, 0, 3.5), ("Steel Axe", 4000, 0, 6.0),
         ("Diamond Axe", 15000, 0, 10.0), ("Plasma Axe", 0, 350, 25.0)]
 PICKS = [("Wooden Pickaxe", 0, 0, 1.0, 0), ("Copper Pickaxe", 300, 0, 2.0, 1), ("Iron Pickaxe", 1500, 0, 3.5, 2),
@@ -1141,9 +1141,9 @@ class Game:
     def hook(self):
         f = self.fish
         fi = self.roll_fish(f["zone"], f["perfect"], f["bait"])
-        w = RODS[self.tools["rod"]][4] + (0.06 if self.has("fish2") else 0)
+        w = RODS[self.tools["rod"]][4] + (0.05 if self.has("fish2") else 0)
         self.fish = dict(s="reel", fish=fi, pos=0.5, vel=0.0, fpos=random.uniform(0.2, 0.8), ft=0.5, fnext=0.0,
-                         prog=0.25, w=w, bx=f["bx"], by=f["by"])
+                         prog=0.3, w=w, bx=f["bx"], by=f["by"])
 
     def update_fish(self, dt, keys):
         f = self.fish
@@ -1162,7 +1162,7 @@ class Game:
                 self.note("Too slow! The fish got away...", ORANGE)
         elif f["s"] == "reel":
             hold = keys[pygame.K_SPACE] or pygame.mouse.get_pressed()[0] or keys[pygame.K_f]
-            f["vel"] = clamp(f["vel"] + (2.8 if hold else -2.4) * dt, -1.3, 1.3)
+            f["vel"] = clamp(f["vel"] + (2.0 if hold else -1.7) * dt, -0.85, 0.85)
             f["pos"] += f["vel"] * dt
             half = f["w"] / 2
             if f["pos"] < half:
@@ -1172,12 +1172,13 @@ class Game:
             fi = f["fish"]
             f["fnext"] -= dt
             if f["fnext"] <= 0:
-                f["ft"] = random.uniform(0.05, 0.95)
-                f["fnext"] = random.uniform(0.35, 1.2) / (1 + fi["ri"] * 0.15)
-            sp = 0.3 + fi["ri"] * 0.18 + fi["diff"] * 0.4
+                # swim a short way from where it is (no teleporting across the bar), then pause a bit
+                f["ft"] = clamp(f["fpos"] + random.uniform(-0.35, 0.35), 0.05, 0.95)
+                f["fnext"] = random.uniform(0.9, 2.0) / (1 + fi["ri"] * 0.18)
+            sp = 0.14 + fi["ri"] * 0.07 + fi["diff"] * 0.22
             f["fpos"] += clamp(f["ft"] - f["fpos"], -sp * dt, sp * dt)
             inside = abs(f["fpos"] - f["pos"]) < half
-            f["prog"] += (0.3 if inside else -(0.16 + 0.04 * fi["ri"])) * dt
+            f["prog"] += (0.13 if inside else -(0.07 + 0.035 * fi["ri"])) * dt
             if f["prog"] >= 1:
                 self.catch(fi)
                 self.fish = None
