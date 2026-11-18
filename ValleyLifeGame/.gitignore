@@ -1,2 +1,5 @@
 valley_save.json
 __pycache__/
+build/
+dist/
+*.spec

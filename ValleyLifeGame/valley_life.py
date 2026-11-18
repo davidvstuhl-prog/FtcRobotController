@@ -27,7 +27,8 @@ import pygame
 W, H = 1280, 720
 TS = 32                     # tile size in pixels
 MW, MH = 140, 100           # map size in tiles
-HERE = os.path.dirname(os.path.abspath(__file__))
+# When packaged as a Windows .exe (PyInstaller), keep the save next to the .exe, not in a temp folder.
+HERE = os.path.dirname(sys.executable if getattr(sys, "frozen", False) else os.path.abspath(__file__))
 SAVE_FILE = os.path.join(HERE, "valley_save.json")
 
 WHITE = (255, 255, 255); BLACK = (0, 0, 0); GREY = (150, 150, 160)
