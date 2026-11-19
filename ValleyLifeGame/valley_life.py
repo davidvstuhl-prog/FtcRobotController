@@ -1086,6 +1086,8 @@ class Game:
             zone = self.zone.get((int(bx // TS), int(by // TS)), "river")
             bait = self.take("bait", 1) is not None
             lure = RODS[self.tools["rod"]][5] * (0.7 if self.has("fish3") else 1) * (0.75 if self.rain > 0 else 1)
+            ln = math.hypot(bx - self.px, by - self.py) or 1
+            self.facing = ((bx - self.px) / ln, (by - self.py) / ln)  # turn toward the bobber
             self.fish = dict(s="wait", bx=bx, by=by, zone=zone, t=random.uniform(2.0, 6.5) * lure, perfect=p > 0.88, bait=bait)
             self.burst(bx, by, (200, 230, 255), 10, 90)
             if p > 0.88:
@@ -1972,6 +1974,11 @@ class Game:
         # movement
         self.moving = False
         reeling = self.fish and self.fish["s"] == "reel"
+        if self.fish and self.fish["s"] == "charge" and not busy:   # turn toward where you're aiming
+            mx, my = self.mouse_world()
+            ln = math.hypot(mx - self.px, my - self.py)
+            if ln > 4:
+                self.facing = ((mx - self.px) / ln, (my - self.py) / ln)
         if not busy and not reeling:
             dx = (keys[pygame.K_d] or keys[pygame.K_RIGHT]) - (keys[pygame.K_a] or keys[pygame.K_LEFT])
             dy = (keys[pygame.K_s] or keys[pygame.K_DOWN]) - (keys[pygame.K_w] or keys[pygame.K_UP])
@@ -2409,7 +2416,11 @@ class Game:
             pygame.draw.ellipse(sc, (180, 220, 255), (sx - r, sy - 16, r * 2, r), 2)
             self.blit_spr(f"p_{key}_{d}_swim", sx, sy)
         else:
+            if self.fish and d == "up":
+                self.draw_rod()   # facing away: rod is behind the body
             self.blit_spr(f"p_{key}_{d}_{self.walk_frame(self.moving)}", sx, sy)
+            if self.fish and d != "up":
+                self.draw_rod()
             if self.vip:
                 y0 = sy - 54
                 pygame.draw.polygon(sc, GOLD, [(sx - 9, y0 + 8), (sx - 9, y0), (sx - 4, y0 + 5), (sx, y0 - 3), (sx + 4, y0 + 5),
@@ -2420,6 +2431,34 @@ class Game:
             pygame.draw.rect(sc, (200, 150, 90), (sx - 30, cy + 22, int(60 * self.dig_prog), 9), border_radius=4)
             ang = math.sin(self.t * 14) * 0.6
             pygame.draw.line(sc, (140, 140, 150), (sx + 12, cy - 4), (sx + 12 + int(math.sin(ang) * 16), cy + 14), 3)
+
+    def rod_geom(self):
+        """Hand and tip of the fishing rod, in screen pixels, for the way the player faces."""
+        f = self.fish
+        sx, sy = self.w2s(self.px, self.py + 12)
+        d = self.dir_of(*self.facing)
+        hx, hy = {"down": (sx + 11, sy - 18), "up": (sx - 11, sy - 18), "left": (sx - 3, sy - 17), "right": (sx + 3, sy - 17)}[d]
+        if f and f["s"] == "charge":   # winding up: rod swings back over the shoulder
+            a = math.atan2(self.facing[1], self.facing[0])
+            back = 0.4 + 0.6 * self.cast_power()
+            return (hx, hy), (hx - math.cos(a) * 14 * back, hy - 26 - 6 * back)
+        if f and "bx" in f:
+            bx, by = self.w2s(f["bx"], f["by"])
+            a = math.atan2(by - hy, bx - hx)
+        else:
+            a = math.atan2(self.facing[1], self.facing[0])
+        bend = math.sin(self.t * 30) * 3 if f and f["s"] in ("bite", "reel") else 0
+        down = max(0.0, math.sin(a)) ** 2   # pointing at the camera: lean the rod to the side so it still reads as a rod
+        return (hx, hy), (hx + math.cos(a) * 26 + 9 * down, hy + math.sin(a) * 22 - 14 * (1 - max(0.0, math.sin(a))) + bend)
+
+    def draw_rod(self):
+        (hx, hy), (tx, ty) = self.rod_geom()
+        sc = self.screen
+        pygame.draw.line(sc, (40, 30, 38), (hx, hy), (tx, ty), 5)
+        pygame.draw.line(sc, (150, 100, 55), (hx, hy), (tx, ty), 3)
+        pygame.draw.line(sc, (200, 150, 90), (hx, hy), ((hx + tx) / 2, (hy + ty) / 2), 1)
+        pygame.draw.circle(sc, (40, 30, 38), (round(hx + (tx - hx) * 0.15), round(hy + (ty - hy) * 0.15)), 4)
+        pygame.draw.circle(sc, (190, 190, 200), (round(hx + (tx - hx) * 0.15), round(hy + (ty - hy) * 0.15)), 3)
 
     def draw_fishing_world(self):
         f = self.fish
@@ -2436,8 +2475,8 @@ class Game:
             return
         bx, by = self.w2s(f["bx"], f["by"])
         bob = math.sin(self.t * 4) * 2 if f["s"] == "wait" else math.sin(self.t * 30) * 4
-        pygame.draw.line(sc, (60, 40, 20), (sx + 6, sy - 6), (sx + 22, sy - 34), 3)
-        pygame.draw.line(sc, (230, 230, 230), (sx + 22, sy - 34), (bx, by + bob), 1)
+        tip = self.rod_geom()[1]
+        pygame.draw.line(sc, (235, 235, 235), tip, (bx, by + bob), 1)
         pygame.draw.circle(sc, RED, (bx, int(by + bob)), 6)
         pygame.draw.circle(sc, WHITE, (bx, int(by + bob) - 3), 3)
         if f["s"] == "bite":

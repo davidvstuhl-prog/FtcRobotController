@@ -532,6 +532,7 @@ class Game {
       const zone = this.zone.get(key(Math.floor(bx/TS), Math.floor(by/TS))) || "river";
       const bait = this.take("bait", 1) !== null;
       const lure = RODS[this.tools.rod][5] * (this.has("fish3") ? 0.7 : 1) * (this.rain > 0 ? 0.75 : 1);
+      { const ln = Math.hypot(bx - this.px, by - this.py) || 1; this.facing = [(bx - this.px)/ln, (by - this.py)/ln]; } // turn toward the bobber
       this.fish = {s: "wait", bx, by, zone, t: uniform(2, 6.5)*lure, perfect: p > 0.88, bait};
       this.burst(bx, by, [200,230,255], 10, 90);
       if (p > 0.88) this.floatText(this.px, this.py-40, "PERFECT CAST! +luck", GOLD);
@@ -917,6 +918,8 @@ class Game {
     for (const v of ["atkCd","mineCd","drinkCd","hurt","shake"]) this[v] = Math.max(0, this[v] - dt);
     const tile = this.tileAt(this.px, this.py); this.moving = false;
     const reeling = this.fish && this.fish.s === "reel";
+    if (this.fish && this.fish.s === "charge" && !busy && !this.touch) { // turn toward where you're aiming
+      const [mx, my] = this.mouseWorld(), ln = Math.hypot(mx - this.px, my - this.py); if (ln > 4) this.facing = [(mx - this.px)/ln, (my - this.py)/ln]; }
     if (!busy && !reeling) {
       const K = this.keys; let dx = (K.has("KeyD") || K.has("ArrowRight") ? 1 : 0) - (K.has("KeyA") || K.has("ArrowLeft") ? 1 : 0);
       let dy = (K.has("KeyS") || K.has("ArrowDown") ? 1 : 0) - (K.has("KeyW") || K.has("ArrowUp") ? 1 : 0);
@@ -1091,17 +1094,31 @@ class Game {
   drawPlayer() {
     const [sx, sy] = this.w2s(this.px, this.py + 12), d = this.dirOf(...this.facing), key_ = this.hurt > 0 ? "hurt" : "player";
     if (this.tileAt(this.px, this.py) === DEEP) { const r = 16 + 3*Math.sin(this.t*4); ctx.beginPath(); ctx.ellipse(sx, sy-8, r, r/2, 0, 0, Math.PI*2); ctx.strokeStyle = "rgb(180,220,255)"; ctx.lineWidth = 2; ctx.stroke(); spr(`p_${key_}_${d}_swim`, sx, sy); }
-    else { spr(`p_${key_}_${d}_${this.walkFrame(this.moving)}`, sx, sy);
+    else { if (this.fish && d === "up") this.drawRod(); spr(`p_${key_}_${d}_${this.walkFrame(this.moving)}`, sx, sy); if (this.fish && d !== "up") this.drawRod();
       if (this.vip) { const y0 = sy - 54; poly([[sx-9, y0+8], [sx-9, y0], [sx-4, y0+5], [sx, y0-3], [sx+4, y0+5], [sx+9, y0], [sx+9, y0+8]], GOLD); } }
     if (this.digProg > 0) { const cy = sy - 12; rrect(sx-30, cy+22, 60, 9, 4, [20,20,20]); rrect(sx-30, cy+22, 60*this.digProg, 9, 4, [200,150,90]);
       const ang = Math.sin(this.t*14)*0.6; line(sx+12, cy-4, sx+12 + Math.sin(ang)*16, cy+14, [140,140,150], 3); }
+  }
+  rodGeom() { // hand and tip of the fishing rod, in screen pixels
+    const f = this.fish, [sx, sy] = this.w2s(this.px, this.py + 12), d = this.dirOf(...this.facing);
+    const [hx, hy] = {down: [sx+11, sy-18], up: [sx-11, sy-18], left: [sx-3, sy-17], right: [sx+3, sy-17]}[d];
+    if (f && f.s === "charge") { const a = Math.atan2(this.facing[1], this.facing[0]), back = 0.4 + 0.6*this.castPower(); return [[hx, hy], [hx - Math.cos(a)*14*back, hy - 26 - 6*back]]; }
+    let a; if (f && f.bx !== undefined) { const [bx, by] = this.w2s(f.bx, f.by); a = Math.atan2(by - hy, bx - hx); } else a = Math.atan2(this.facing[1], this.facing[0]);
+    const bend = f && (f.s === "bite" || f.s === "reel") ? Math.sin(this.t*30)*3 : 0;
+    const down = Math.max(0, Math.sin(a))**2; // pointing at the camera: lean the rod to the side so it still reads as a rod
+    return [[hx, hy], [hx + Math.cos(a)*26 + 9*down, hy + Math.sin(a)*22 - 14*(1 - Math.max(0, Math.sin(a))) + bend]];
+  }
+  drawRod() {
+    const [[hx, hy], [tx, ty]] = this.rodGeom();
+    line(hx, hy, tx, ty, [40,30,38], 5); line(hx, hy, tx, ty, [150,100,55], 3); line(hx, hy, (hx+tx)/2, (hy+ty)/2, [200,150,90], 1);
+    const rx = hx + (tx-hx)*0.15, ry = hy + (ty-hy)*0.15; circle(rx, ry, 4, [40,30,38]); circle(rx, ry, 3, [190,190,200]);
   }
   drawFishingWorld() {
     const f = this.fish, [sx, sy] = this.w2s(this.px, this.py);
     if (f.s === "charge") { const p = this.castPower(); rrect(sx+22, sy-50, 12, 60, 4, [20,20,20]); rrect(sx+22, sy+10-60*p, 12, 60*p, 4, p > 0.88 ? GOLD : GREEN);
       if (!this.touch) line(sx, sy, this.mouse[0], this.mouse[1], WHITE, 1); text("POWER", sx+28, sy-66, 16, WHITE, "c"); return; }
     const [bx, by] = this.w2s(f.bx, f.by), bob = f.s === "wait" ? Math.sin(this.t*4)*2 : Math.sin(this.t*30)*4;
-    line(sx+6, sy-6, sx+22, sy-34, [60,40,20], 3); line(sx+22, sy-34, bx, by+bob, [230,230,230], 1); circle(bx, by+bob, 6, RED); circle(bx, by+bob-3, 3, WHITE);
+    const tip = this.rodGeom()[1]; line(tip[0], tip[1], bx, by+bob, [235,235,235], 1); circle(bx, by+bob, 6, RED); circle(bx, by+bob-3, 3, WHITE);
     if (f.s === "bite") { text("!", bx, by-30, 40 + 8*Math.sin(this.t*20), GOLD, "c"); text(this.touch ? "TAP FISH NOW!" : "PRESS F / SPACE / CLICK!", bx, by-60, 24, GOLD, "c"); }
   }
 
