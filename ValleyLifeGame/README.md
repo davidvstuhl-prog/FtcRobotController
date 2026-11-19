@@ -49,8 +49,19 @@ click **New game** on the title screen, to start over.
 - **Gem store**: premium currency, potions, VIP, a limited-time starter pack. **All real-money prices are fake
   placeholders. Nothing is ever charged.**
 
+## Files
+
+| File | What it is |
+|---|---|
+| `valley_life.py` | The game (Python + pygame). This is what the Windows `.exe` is built from. |
+| `valley_art.py` | All the art: trees, rocks, buildings, people, animals, pets, item icons and the 2.5D map, drawn with code. |
+| `web/template.html` | The same game in JavaScript, for browsers. |
+| `build_web.py` | Packs the Python art and world into the browser version: `python build_web.py` writes `valley_life_web.html`. |
+| `valley_life_web.html` | The built browser version. |
+
 ## Browser version
 
-`valley_life_web.html` is the same game in JavaScript. Double-click it to play in any browser; nothing to install.
+`valley_life_web.html` is the same game in JavaScript, with the exact same map and art. Double-click it to play in any browser; nothing to install.
+After changing the art or the Python world, run `pip install pygame pillow` and `python build_web.py` to rebuild it.
 When it starts, it asks whether you're on a keyboard + mouse or a touchscreen. The joystick and big buttons only
 appear in touchscreen mode, and you can switch from the pause menu. Progress saves in that browser.

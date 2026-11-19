@@ -68,11 +68,9 @@ def dist(ax, ay, bx, by):
 
 
 # ------------------------------------------------------------------ tiles
-GRASS, SAND, SHALLOW, DEEP, PATH, CAVE, WALL, MOUNT, BRIDGE, PLOTT = range(10)
-TILE_COL = {GRASS: (86, 162, 72), SAND: (216, 198, 134), SHALLOW: (72, 155, 215), DEEP: (34, 96, 178),
-            PATH: (176, 146, 104), CAVE: (84, 78, 86), WALL: (42, 38, 48), MOUNT: (112, 112, 108),
-            BRIDGE: (146, 104, 62), PLOTT: (112, 80, 50)}
-WATER = (SHALLOW, DEEP)
+import valley_art as art  # noqa: E402  (all sprites + the map are drawn in valley_art.py)
+from valley_art import (GRASS, SAND, SHALLOW, DEEP, PATH, CAVE, WALL, MOUNT, BRIDGE, PLOTT,  # noqa: E402
+                        TILE_COL, WATER)
 SOLID = (WALL, MOUNT)
 
 # ------------------------------------------------------------------ game data
@@ -272,6 +270,7 @@ BUYERS = [("Lumber Larry", "wood", (150, 100, 60)), ("Digger Dot", "dig", (200, 
           ("Miner Mo", "ore", (120, 120, 140)), ("Hungry Hank", "food", (220, 120, 80)),
           ("Fishmonger Fiona", "fish", (80, 160, 200)), ("Farmer Fran", "crop", (120, 190, 80)),
           ("Trapper Tom", "animal", (140, 90, 60))]
+CAT_ORDER = ["fish", "wood", "ore", "dig", "animal", "crop", "food", "misc"]
 CATS = [("All", None), ("Fish", "fish"), ("Wood", "wood"), ("Ore", "ore"), ("Dig", "dig"), ("Animal", "animal"),
         ("Crop", "crop"), ("Food", "food"), ("Misc", "misc")]
 # description, stat, amount, coins, gems, target
@@ -309,7 +308,7 @@ for _f in FISH:
 reg("Fish Fillet", "fish", 8, "Common", (250, 170, 150), tags=("fillet",))
 reg("Fish Scales", "fish", 4, "Common", (170, 220, 230))
 for _t in TREES:
-    reg(_t[0] + " Log", "wood", _t[1], _t[4], shade(_t[3], -10), tags=("wood",))
+    reg(_t[0] + " Log", "wood", _t[1], _t[4], art.LOG_LOOK[_t[0] + " Log"][0], tags=("wood",))
 for _o in ORES:
     reg(_o[0], "ore", _o[2], _o[5], _o[4])
 for _d in DIG + DIVE:
@@ -379,6 +378,12 @@ class Game:
         self.gen_world()
         self.reset_state()
         self.had_save = self.load()
+        self.spr = art.build_all([(t[0], t[3]) for t in TREES], [(o[0], o[1], o[4]) for o in ORES],
+                                 [(b[0], b[6], b[4], b[5]) for b in BUILDINGS], BUYERS,
+                                 {n: (d['cat'], d['color']) for n, d in ITEMS.items()},
+                                 [(q[0], q[1], q[2]) for q in PETS], RAR)
+        self._scaled = {}
+        self.sell_dlg = None
         self.title = True
         self.menu = None
         self.tab = 0
@@ -761,46 +766,7 @@ class Game:
                     "garden": self.plot_rects[0].center}
         for b in self.buildings:
             self.poi[b["menu"]] = b["door"]
-        # pre-render map
-        surf = pygame.Surface((MW * TS, MH * TS))
-        for y in range(MH):
-            for x in range(MW):
-                t = T[y][x]
-                c = shade(TILE_COL[t], R.randint(-8, 8))
-                X, Y = x * TS, y * TS
-                surf.fill(c, (X, Y, TS, TS))
-                if t == GRASS:
-                    for _ in range(3):
-                        gx, gy = X + R.randint(2, 29), Y + R.randint(5, 29)
-                        pygame.draw.line(surf, shade(c, -28), (gx, gy), (gx + R.randint(-2, 2), gy - 5))
-                    if R.random() < 0.05:
-                        fc = R.choice([(255, 240, 120), (255, 150, 200), (200, 200, 255), (255, 255, 255)])
-                        pygame.draw.circle(surf, fc, (X + R.randint(6, 26), Y + R.randint(6, 26)), 3)
-                elif t == SAND:
-                    for _ in range(4):
-                        surf.fill(shade(c, -25), (X + R.randint(2, 29), Y + R.randint(2, 29), 2, 2))
-                elif t == MOUNT:
-                    pygame.draw.polygon(surf, shade(c, 18), [(X, Y + TS), (X + 16, Y + R.randint(0, 10)), (X + TS, Y + TS)])
-                    pygame.draw.polygon(surf, shade(c, -12), [(X + 16, Y + 6), (X + TS, Y + TS), (X + 20, Y + TS)])
-                elif t == WALL:
-                    for _ in range(3):
-                        surf.fill(shade(c, R.randint(-10, 18)), (X + R.randint(0, 22), Y + R.randint(0, 22), 10, 8))
-                elif t == CAVE:
-                    for _ in range(3):
-                        surf.fill(shade(c, -18), (X + R.randint(2, 28), Y + R.randint(2, 28), 3, 3))
-                elif t == PATH:
-                    for _ in range(3):
-                        pygame.draw.circle(surf, shade(c, -22), (X + R.randint(4, 28), Y + R.randint(4, 28)), 2)
-                elif t == BRIDGE:
-                    for i in range(0, TS, 8):
-                        pygame.draw.line(surf, shade(c, -35), (X + i, Y), (X + i, Y + TS), 2)
-                elif t == PLOTT:
-                    for i in range(4, TS, 8):
-                        pygame.draw.line(surf, shade(c, -25), (X, Y + i), (X + TS, Y + i), 2)
-                elif t in WATER:
-                    if R.random() < 0.3:
-                        pygame.draw.line(surf, shade(c, 25), (X + 6, Y + 14), (X + 18, Y + 14), 2)
-        self.map_surf = surf
+        self.map_surf = art.render_map(T, MW, MH, TS)
         mini = pygame.Surface((MW, MH))
         for y in range(MH):
             for x in range(MW):
@@ -919,6 +885,7 @@ class Game:
 
     def open_menu(self, m):
         self.menu = m
+        self.sell_dlg = None
         self.tab = 0
         self.scroll = 0
         self.fish = None
@@ -1267,6 +1234,7 @@ class Game:
             self.gain_xp(2 * got * (t["t"] + 1))
             self.note(f"+{got} {name} Log", (200, 160, 110))
             t["stump"] = 180 if t["t"] == 4 else 45
+            self.blocked.discard((t["x"], t["y"]))  # stumps have no hitbox
             self.burst(x, y, col, 25, 160)
             self.rare_fx("Ancient Tree felled!", ridx(rar), x, y)
 
@@ -1488,6 +1456,7 @@ class Game:
                         a = random.uniform(0, math.tau)
                         an["vx"], an["vy"] = math.cos(a) * s["spd"] * 0.35, math.sin(a) * s["spd"] * 0.35
                 vx, vy = an["vx"], an["vy"]
+            an["spd"] = math.hypot(vx, vy)
             nx, ny = an["x"] + vx * dt, an["y"] + vy * dt
             r = max(6, s["size"] * 0.6)
             if self.can_walk(nx, an["y"], r) and self.tile_at(nx, an["y"]) not in WATER:
@@ -1525,6 +1494,7 @@ class Game:
         if not opts or len(self.npcs) >= 3:
             return
         name, cat, col = random.choice(opts)
+        pal = BUYERS.index((name, cat, col))
         owned = [s["name"] for s in self.bag if ITEMS[s["name"]]["cat"] == cat and "junk" not in ITEMS[s["name"]]["tags"]]
         if owned and random.random() < 0.6:
             item = random.choice(owned)
@@ -1535,7 +1505,7 @@ class Game:
         cnt = random.randint(5, 12) if cat == "wood" else random.randint(1, 2) if cat == "food" else random.randint(2, 5)
         reward = int(ITEMS[item]["base"] * cnt * 1.8 + 25)
         sx = random.choice([51 * TS, 92 * TS])
-        self.npcs.append(dict(name=name, cat=cat, item=item, cnt=cnt, reward=reward, gems=random.choice([0, 0, 1, 2, 3]),
+        self.npcs.append(dict(pal=pal, name=name, cat=cat, item=item, cnt=cnt, reward=reward, gems=random.choice([0, 0, 1, 2, 3]),
                               col=col, x=float(sx), y=52.9 * TS, sx=sx, sy=52.9 * TS, tx=random.randint(56, 89) * TS + 16.0,
                               ty=random.randint(49, 54) * TS + 16.0, state="walk", timer=180.0, msg=""))
 
@@ -1583,8 +1553,7 @@ class Game:
             dish = random.choice(owned) if owned and random.random() < 0.6 else random.choice(RECIPES)[0]
             s = random.choice(free)
             tx, ty = TABLES[s]
-            self.diners.append(dict(seat=s, dish=dish, x=tx * TS + 16, y=ty * TS + 46, patience=150.0,
-                                    col=random.choice([(220, 120, 120), (120, 160, 230), (140, 210, 140), (230, 200, 110)])))
+            self.diners.append(dict(seat=s, dish=dish, x=tx * TS + 16, y=ty * TS + 46, patience=150.0, pal=random.randrange(4)))
         for d in list(self.diners):
             d["patience"] -= dt
             if d["patience"] <= 0:
@@ -1934,7 +1903,9 @@ class Game:
                     self.cook_stop()
                 return
             if k == pygame.K_ESCAPE:
-                if self.menu:
+                if self.sell_dlg:
+                    self.sell_dlg = None
+                elif self.menu:
                     self.menu = None
                 else:
                     self.popup("PAUSED", ["Your game saves automatically every minute."],
@@ -2062,8 +2033,12 @@ class Game:
             if t["stump"] > 0:
                 t["stump"] -= dt
                 if t["stump"] <= 0:
+                    if dist(self.px, self.py, t["x"] * TS + 16, t["y"] * TS + 16) < 34:
+                        t["stump"] = 1.0  # wait until the player steps off the stump
+                        continue
                     t["t"] = random.choices(range(len(TREES)), [x[5] for x in TREES])[0]
                     t["hp"] = TREES[t["t"]][2]
+                    self.blocked.add((t["x"], t["y"]))
         for o in self.ores:
             if o["respawn"] > 0:
                 o["respawn"] -= dt
@@ -2218,6 +2193,12 @@ class Game:
                self.draw_pet_world, self.draw_player]
         for _, kind, o in objs:
             fns[kind](o)
+        if not self.title and self.tile_at(self.px, self.py) != DEEP:   # faint "x-ray" player so trees never hide you
+            s, ax, ay = self.spr[f"p_{'hurt' if self.hurt > 0 else 'player'}_{self.dir_of(*self.facing)}_{self.walk_frame(self.moving)}"]
+            ghost = s.copy()
+            ghost.set_alpha(105)
+            sx, sy = self.w2s(self.px, self.py + 12)
+            self.screen.blit(ghost, (round(sx - ax), round(sy - ay)))
         for p in self.projs:
             sx, sy = self.w2s(p["x"], p["y"])
             ex, ey = sx - math.cos(p["a"]) * 22, sy - math.sin(p["a"]) * 22
@@ -2281,174 +2262,134 @@ class Game:
                 else:
                     pygame.draw.line(sc, (60, 150, 60), (x, y + 8), (x, y - 8), 3)
                     pygame.draw.circle(sc, (80, 180, 70), (x, y - 6), 9)
-                    rr = 5 if g >= 1 else 3
-                    bob = math.sin(self.t * 5 + ox) * 2 if g >= 1 else 0
-                    pygame.draw.circle(sc, c[4], (x + 3, int(y - 4 + bob)), rr)
+                    if g >= 1:
+                        self.icon(c[0], x + 2, y - 7 + math.sin(self.t * 5 + ox) * 2, 22)
+                    else:
+                        pygame.draw.circle(sc, c[4], (x + 3, y - 4), 3)
             if g >= 1 and int(self.t * 3) % 2 == 0:
                 self.text("READY!", (sx + 32, sy - 6), 18, GOLD, "c")
             elif g < 1:
                 pygame.draw.rect(sc, (30, 30, 30), (sx + 4, sy + 58, 56, 5))
                 pygame.draw.rect(sc, GREEN, (sx + 4, sy + 58, int(56 * g), 5))
 
+    # sprites (drawn in valley_art.py)
+    def blit_spr(self, name, x, y):
+        s, ax, ay = self.spr[name]
+        self.screen.blit(s, (round(x - ax), round(y - ay)))
+
+    def scaled(self, name, scale):
+        key = (name, round(scale, 3))
+        if key not in self._scaled:
+            s, ax, ay = self.spr[name]
+            w, h = s.get_size()
+            self._scaled[key] = (pygame.transform.smoothscale(s, (max(1, round(w * scale)), max(1, round(h * scale)))),
+                                 ax * scale, ay * scale)
+        return self._scaled[key]
+
+    def icon(self, name, cx, cy, size=40):
+        s = self.scaled("icon_" + name, size / 48)[0]
+        self.screen.blit(s, (round(cx - s.get_width() / 2), round(cy - s.get_height() / 2)))
+
+    @staticmethod
+    def dir_of(dx, dy, default="down"):
+        if abs(dx) < 1e-6 and abs(dy) < 1e-6:
+            return default
+        if abs(dx) > abs(dy):
+            return "right" if dx > 0 else "left"
+        return "down" if dy > 0 else "up"
+
+    def walk_frame(self, moving, phase=0):
+        return (1, 0, 2, 0)[int(self.t * 8 + phase) % 4] if moving else 0
+
+    def hp_bar(self, x, y, frac, col, w=36):
+        pygame.draw.rect(self.screen, (20, 20, 24), (x - w // 2 - 1, y - 1, w + 2, 7), border_radius=3)
+        pygame.draw.rect(self.screen, col, (x - w // 2, y, max(2, int(w * frac)), 5), border_radius=3)
+
     def draw_tree(self, t):
-        sc = self.screen
-        sx, sy = self.w2s(t["x"] * TS + 16, t["y"] * TS + 16)
+        sx, sy = self.w2s(t["x"] * TS + 16, t["y"] * TS + 28)
         name, val, hp, col, rar, _ = TREES[t["t"]]
-        pygame.draw.ellipse(sc, (40, 80, 35), (sx - 14, sy + 6, 28, 10))
         if t["stump"] > 0:
-            pygame.draw.ellipse(sc, (120, 85, 50), (sx - 8, sy - 2, 16, 10))
-            pygame.draw.ellipse(sc, (170, 130, 80), (sx - 6, sy - 2, 12, 6))
+            self.blit_spr("stump_" + name, sx, sy)
             return
-        pygame.draw.rect(sc, (110, 75, 45) if name != "Birch" else (230, 230, 220), (sx - 4, sy - 12, 8, 22))
-        if name == "Pine":
-            for i in range(3):
-                pygame.draw.polygon(sc, shade(col, i * 10), [(sx - 18 + i * 3, sy - 6 - i * 12), (sx, sy - 30 - i * 12),
-                                                             (sx + 18 - i * 3, sy - 6 - i * 12)])
-        else:
-            big = 1.5 if name == "Ancient" else 1
-            if name == "Ancient":
-                pygame.draw.circle(sc, (255, 240, 150), (sx, sy - 28), int(28 + 3 * math.sin(self.t * 3)), 3)
-            for ox, oy, r in ((-8, -22, 13), (8, -22, 13), (0, -32, 15)):
-                pygame.draw.circle(sc, shade(col, -15), (sx + int(ox * big), sy + int(oy * big) + 2), int(r * big))
-                pygame.draw.circle(sc, col, (sx + int(ox * big), sy + int(oy * big)), int(r * big))
-            if name == "Maple":
-                pygame.draw.circle(sc, (255, 160, 60), (sx - 5, sy - 34), 4)
+        if name == "Ancient":
+            pygame.draw.circle(self.screen, (255, 240, 150), (sx, sy - 62), int(48 + 4 * math.sin(self.t * 3)), 2)
+        self.blit_spr("tree_" + name, sx, sy)
         if t["hp"] < hp:
-            pygame.draw.rect(sc, (30, 30, 30), (sx - 18, sy + 14, 36, 5))
-            pygame.draw.rect(sc, GREEN, (sx - 18, sy + 14, int(36 * t["hp"] / hp), 5))
+            self.hp_bar(sx, sy + 6, t["hp"] / hp, GREEN)
 
     def draw_ore(self, o):
-        sc = self.screen
-        sx, sy = self.w2s(o["x"] * TS + 16, o["y"] * TS + 16)
+        sx, sy = self.w2s(o["x"] * TS + 16, o["y"] * TS + 26)
         name, tier, price, hp, col, rar, _ = ORES[o["o"]]
         if o["respawn"] > 0:
-            for i in range(3):
-                pygame.draw.circle(sc, (100, 100, 100), (sx - 8 + i * 8, sy + 8), 3)
+            self.blit_spr("rubble", sx, sy)
             return
-        pts = [(sx - 14, sy + 10), (sx - 12, sy - 6), (sx - 2, sy - 13), (sx + 11, sy - 8), (sx + 14, sy + 10)]
-        pygame.draw.polygon(sc, (110, 108, 112), pts)
-        pygame.draw.polygon(sc, (70, 68, 72), pts, 2)
-        for ox, oy in ((-5, -2), (5, 2), (2, -7)):
-            pygame.draw.circle(sc, col, (sx + ox, sy + oy), 3 if tier < 3 else 4)
+        self.blit_spr("ore_" + name, sx, sy)
         if ridx(rar) >= 3 and int(self.t * 4 + o["x"]) % 3 == 0:
-            pygame.draw.circle(sc, WHITE, (sx + 4, sy - 6), 2)
+            pygame.draw.circle(self.screen, WHITE, (sx + 6, sy - 30), 2)
         if o["hp"] < hp:
-            pygame.draw.rect(sc, (30, 30, 30), (sx - 16, sy + 14, 32, 5))
-            pygame.draw.rect(sc, ORANGE, (sx - 16, sy + 14, int(32 * o["hp"] / hp), 5))
+            self.hp_bar(sx, sy + 4, o["hp"] / hp, ORANGE)
 
     def draw_building(self, b):
-        sc = self.screen
         r = b["rect"]
         sx, sy = self.w2s(r.x, r.y)
-        col = b["col"]
-        pygame.draw.rect(sc, (0, 0, 0), (sx + 6, sy + 22, r.w, r.h - 16), border_radius=6)
-        pygame.draw.rect(sc, (225, 210, 185), (sx, sy + 18, r.w, r.h - 18), border_radius=4)
-        pygame.draw.polygon(sc, shade(col, -40), [(sx - 10, sy + 34), (sx + r.w // 2, sy - 14), (sx + r.w + 10, sy + 34)])
-        pygame.draw.polygon(sc, col, [(sx - 6, sy + 30), (sx + r.w // 2, sy - 8), (sx + r.w + 6, sy + 30)])
+        self.blit_spr("bld_" + b["name"], sx, sy)
         dx = sx + r.w // 2
-        pygame.draw.rect(sc, (90, 60, 40), (dx - 14, sy + r.h - 38, 28, 38), border_radius=4)
-        pygame.draw.circle(sc, GOLD, (dx + 8, sy + r.h - 18), 3)
-        for wx in (sx + 18, sx + r.w - 42):
-            pygame.draw.rect(sc, (150, 210, 250), (wx, sy + 52, 24, 20))
-            pygame.draw.rect(sc, (90, 60, 40), (wx, sy + 52, 24, 20), 3)
-        sign = pygame.Rect(0, 0, max(90, self.font(22).size(b["name"])[0] + 16), 26)
-        sign.center = (dx, sy + 38)
-        pygame.draw.rect(sc, shade(col, -60), sign, border_radius=6)
-        self.text(b["name"], sign.center, 22, WHITE, "c")
         if b["menu"] == "gems":
             for i in range(4):
                 a = self.t * 2 + i * 1.57
-                pygame.draw.circle(sc, (180, 255, 255), (int(dx + math.cos(a) * 60), int(sy + 40 + math.sin(a) * 30)), 3)
+                pygame.draw.circle(self.screen, (180, 255, 255), (int(dx + math.cos(a) * 70), int(sy - 30 + math.sin(a) * 18)), 3)
         if b["menu"] == "cook" and self.restaurant:
-            self.text("OPEN", (dx, sy - 26), 24, GREEN, "c")
+            self.text("OPEN!", (dx, sy - 70), 26, GREEN, "c")
 
     def draw_animal(self, a):
-        sc = self.screen
         s = ANIMALS[a["kind"]]
-        sx, sy = self.w2s(a["x"], a["y"])
-        z = s["size"]
-        d = a.get("dir", 1)
-        col = WHITE if a["flash"] > 0 else s["col"]
-        pygame.draw.ellipse(sc, (30, 60, 30), (sx - z, sy + z // 2, z * 2, z // 2 + 3))
-        pygame.draw.ellipse(sc, col, (sx - z, sy - z // 2, z * 2, int(z * 1.2)))
-        hx = sx + d * z
-        pygame.draw.circle(sc, col, (hx, sy - z // 2), int(z * 0.6))
-        pygame.draw.circle(sc, BLACK, (hx + d * int(z * 0.25), sy - z // 2 - 2), 2)
-        k = a["kind"]
-        if k == "Rabbit":
-            pygame.draw.ellipse(sc, col, (hx - 4, sy - z - 10, 4, 12))
-            pygame.draw.ellipse(sc, col, (hx + 1, sy - z - 10, 4, 12))
-        elif k in ("Deer", "Golden Stag"):
-            ac = (255, 240, 150) if k == "Golden Stag" else (120, 90, 60)
-            pygame.draw.line(sc, ac, (hx, sy - z), (hx - 6, sy - z - 12), 2)
-            pygame.draw.line(sc, ac, (hx, sy - z), (hx + 6, sy - z - 12), 2)
-            if k == "Golden Stag":
-                pygame.draw.circle(sc, (255, 255, 200), (sx, sy - z), int(z + 8 + 3 * math.sin(self.t * 5)), 2)
-        elif k == "Boar":
-            pygame.draw.line(sc, WHITE, (hx + d * 6, sy - z // 2 + 3), (hx + d * 10, sy - z // 2 - 2), 2)
-        elif k == "Bear":
-            pygame.draw.circle(sc, col, (hx - 6, sy - z - 2), 5)
-            pygame.draw.circle(sc, col, (hx + 6, sy - z - 2), 5)
-        elif k == "Wolf":
-            pygame.draw.polygon(sc, col, [(hx - 5, sy - z), (hx - 2, sy - z - 10), (hx + 1, sy - z)])
+        sx, sy = self.w2s(a["x"], a["y"] + s["size"] * 0.6)
+        if not (a["flash"] > 0 and int(self.t * 30) % 2 == 0):
+            f = self.walk_frame(a.get("spd", 0) > 5, (id(a) >> 4) % 4)
+            self.blit_spr(f"a_{a['kind']}_{'r' if a.get('dir', 1) > 0 else 'l'}_{f}", sx, sy)
+        top = sy - self.spr[f"a_{a['kind']}_r_0"][2] + s["size"] * 0.8
         if s["beh"] == "aggro" and dist(a["x"], a["y"], self.px, self.py) < 260:
-            self.text("!", (sx, sy - z - 26), 28, RED, "c")
+            self.text("!", (sx, top - 14), 30, RED, "c")
         if a["hp"] < s["hp"]:
-            pygame.draw.rect(sc, (30, 30, 30), (sx - 18, sy - z - 14, 36, 5))
-            pygame.draw.rect(sc, RED, (sx - 18, sy - z - 14, int(36 * a["hp"] / s["hp"]), 5))
-
-    def draw_person(self, sx, sy, body, hat=None):
-        sc = self.screen
-        pygame.draw.ellipse(sc, (0, 0, 0), (sx - 11, sy + 10, 22, 7))
-        pygame.draw.circle(sc, body, (sx, sy), 12)
-        pygame.draw.circle(sc, (255, 220, 180), (sx, sy - 16), 9)
-        pygame.draw.circle(sc, BLACK, (sx - 3, sy - 17), 2)
-        pygame.draw.circle(sc, BLACK, (sx + 3, sy - 17), 2)
-        if hat:
-            pygame.draw.rect(sc, hat, (sx - 9, sy - 28, 18, 6))
+            self.hp_bar(sx, top, a["hp"] / s["hp"], RED)
 
     def bubble(self, sx, sy, lines, col=WHITE):
         f = self.font(18)
-        w = max(f.size(l)[0] for l in lines) + 14
-        h = 18 * len(lines) + 8
+        w = max(f.size(l)[0] for l in lines) + 16
+        h = 18 * len(lines) + 10
         r = pygame.Rect(sx - w // 2, sy - h, w, h)
+        pygame.draw.rect(self.screen, (40, 30, 38), r.inflate(4, 4), border_radius=10)
         pygame.draw.rect(self.screen, (255, 255, 255), r, border_radius=8)
-        pygame.draw.polygon(self.screen, WHITE, [(sx - 6, r.bottom), (sx + 6, r.bottom), (sx, r.bottom + 8)])
+        pygame.draw.polygon(self.screen, (40, 30, 38), [(sx - 8, r.bottom + 1), (sx + 8, r.bottom + 1), (sx, r.bottom + 10)])
+        pygame.draw.polygon(self.screen, WHITE, [(sx - 6, r.bottom - 1), (sx + 6, r.bottom - 1), (sx, r.bottom + 7)])
         for i, l in enumerate(lines):
-            self.text(l, (r.centerx, r.y + 13 + i * 18), 18, (30, 30, 40) if i else (20, 90, 160), "c", False)
+            self.text(l, (r.centerx, r.y + 14 + i * 18), 18, (30, 30, 40) if i else (20, 90, 160), "c", False)
 
     def draw_npc(self, n):
-        sx, sy = self.w2s(n["x"], n["y"])
-        self.draw_person(sx, sy, n["col"], shade(n["col"], -50))
-        self.text(n["name"], (sx, sy + 24), 18, WHITE, "c")
+        sx, sy = self.w2s(n["x"], n["y"] + 12)
+        moving = n["state"] in ("walk", "leave") and dist(n["x"], n["y"], n["tx"], n["ty"]) > 3
+        d = self.dir_of(n["tx"] - n["x"], n["ty"] - n["y"]) if moving else "down"
+        self.blit_spr(f"p_npc{n['pal']}_{d}_{self.walk_frame(moving)}", sx, sy)
+        self.text(n["name"], (sx, sy + 12), 18, WHITE, "c")
         if n["state"] == "wait":
-            self.bubble(sx, sy - 34, [f"WANT: {n['cnt']}x {n['item']}",
+            self.bubble(sx, sy - 60, [f"WANT: {n['cnt']}x {n['item']}",
                                       f"Pays {n['reward']}c" + (f" + {n['gems']} gems" if n["gems"] else "")])
+            self.icon(n["item"], sx + self.font(18).size(f"WANT: {n['cnt']}x {n['item']}")[0] // 2 + 22, sy - 82, 26)
         elif n["msg"]:
-            self.bubble(sx, sy - 34, [n["msg"]])
+            self.bubble(sx, sy - 60, [n["msg"]])
 
     def draw_diner(self, d):
         sx, sy = self.w2s(d["x"], d["y"])
-        self.draw_person(sx, sy, d["col"])
-        self.bubble(sx, sy - 34, ["Order:", d["dish"]])
-        pygame.draw.rect(self.screen, (30, 30, 30), (sx - 20, sy + 16, 40, 5))
+        self.blit_spr(f"p_diner{d['pal']}_up_0", sx, sy)
+        self.bubble(sx, sy - 60, ["Order:", d["dish"]])
+        self.icon(d["dish"], sx + 44, sy - 76, 26)
         frac = d["patience"] / 150
-        pygame.draw.rect(self.screen, GREEN if frac > 0.4 else RED, (sx - 20, sy + 16, int(40 * frac), 5))
+        self.hp_bar(sx, sy + 6, frac, GREEN if frac > 0.4 else RED, 40)
 
     def draw_pet(self, sx, sy, name, scale=1.0):
-        sc = self.screen
-        p = PET[name]
-        col = p[2]
-        r = int(10 * scale)
-        if ridx(p[1]) >= 4:
-            pygame.draw.circle(sc, RCOL[p[1]], (sx, sy), int(r + 5 * scale + 2 * math.sin(self.t * 5)), max(1, int(2 * scale)))
-        pygame.draw.circle(sc, shade(col, -40), (sx, sy + int(2 * scale)), r)
-        pygame.draw.circle(sc, col, (sx, sy), r)
-        pygame.draw.circle(sc, col, (sx - int(6 * scale), sy - int(9 * scale)), int(4 * scale))
-        pygame.draw.circle(sc, col, (sx + int(6 * scale), sy - int(9 * scale)), int(4 * scale))
-        ec = WHITE if sum(col) < 200 else BLACK
-        pygame.draw.circle(sc, ec, (sx - int(4 * scale), sy - int(2 * scale)), max(1, int(2 * scale)))
-        pygame.draw.circle(sc, ec, (sx + int(4 * scale), sy - int(2 * scale)), max(1, int(2 * scale)))
+        s, ax, ay = self.scaled("pet_" + name, scale * 0.6)
+        k = scale * 0.6
+        self.screen.blit(s, (round(sx - 36 * k), round(sy - 46 * k)))
 
     def draw_pet_world(self, k):
         if k >= len(self.equipped):
@@ -2459,26 +2400,26 @@ class Game:
 
     def draw_player(self, _):
         sc = self.screen
-        sx, sy = self.w2s(self.px, self.py)
         tile = self.tile_at(self.px, self.py)
+        d = self.dir_of(*self.facing)
+        key = "hurt" if self.hurt > 0 else "player"
+        sx, sy = self.w2s(self.px, self.py + 12)
         if tile == DEEP:
-            pygame.draw.circle(sc, (180, 220, 255), (sx, sy), int(16 + 3 * math.sin(self.t * 4)), 2)
-            pygame.draw.circle(sc, (255, 220, 180), (sx, sy - 4), 10)
-            pygame.draw.circle(sc, BLACK, (sx - 3, sy - 6), 2)
-            pygame.draw.circle(sc, BLACK, (sx + 3, sy - 6), 2)
+            r = int(16 + 3 * math.sin(self.t * 4))
+            pygame.draw.ellipse(sc, (180, 220, 255), (sx - r, sy - 16, r * 2, r), 2)
+            self.blit_spr(f"p_{key}_{d}_swim", sx, sy)
         else:
-            bob = abs(math.sin(self.t * 12)) * 3 if self.moving else 0
-            body = (220, 60, 60) if self.hurt > 0 else (60, 120, 220)
-            self.draw_person(sx, int(sy - bob), body, (40, 160, 90) if not self.vip else None)
+            self.blit_spr(f"p_{key}_{d}_{self.walk_frame(self.moving)}", sx, sy)
             if self.vip:
-                pygame.draw.polygon(sc, GOLD, [(sx - 9, sy - 25 - bob), (sx - 9, sy - 33 - bob), (sx - 4, sy - 28 - bob),
-                                               (sx, sy - 35 - bob), (sx + 4, sy - 28 - bob), (sx + 9, sy - 33 - bob),
-                                               (sx + 9, sy - 25 - bob)])
+                y0 = sy - 54
+                pygame.draw.polygon(sc, GOLD, [(sx - 9, y0 + 8), (sx - 9, y0), (sx - 4, y0 + 5), (sx, y0 - 3), (sx + 4, y0 + 5),
+                                               (sx + 9, y0), (sx + 9, y0 + 8)])
         if self.dig_prog > 0:
-            pygame.draw.rect(sc, (20, 20, 20), (sx - 30, sy + 22, 60, 9), border_radius=4)
-            pygame.draw.rect(sc, (200, 150, 90), (sx - 30, sy + 22, int(60 * self.dig_prog), 9), border_radius=4)
+            cy = sy - 12
+            pygame.draw.rect(sc, (20, 20, 20), (sx - 30, cy + 22, 60, 9), border_radius=4)
+            pygame.draw.rect(sc, (200, 150, 90), (sx - 30, cy + 22, int(60 * self.dig_prog), 9), border_radius=4)
             ang = math.sin(self.t * 14) * 0.6
-            pygame.draw.line(sc, (140, 140, 150), (sx + 10, sy - 4), (sx + 10 + int(math.sin(ang) * 16), sy + 14), 3)
+            pygame.draw.line(sc, (140, 140, 150), (sx + 12, cy - 4), (sx + 12 + int(math.sin(ang) * 16), cy + 14), 3)
 
     def draw_fishing_world(self):
         f = self.fish
@@ -2652,6 +2593,9 @@ class Game:
     def draw_banner(self):
         if self.banner:
             t, sub, col, life = self.banner
+            if self.menu:   # keep it out of the way of open menus
+                self.text(f"{t}  {sub}", (W // 2, H - 16), 30, col, "c")
+                return
             k = min(1, (3 - life) * 6)
             size = int(40 + 30 * k)
             self.text(t, (W // 2, 150), size, col, "c")
@@ -2776,23 +2720,102 @@ class Game:
     def menu_market(self):
         x, y, w, h = self.panel("MARKET")
         m = self.sell_mult()
-        self.text(f"Sell price multiplier: x{m:.2f}   (pets, VIP, skills & 2x Coins potion raise this!)", (x + 24, y + 70), 22,
-                  (200, 220, 255))
-        ry = y + 110
-        grand = 0
-        for i, (label, cat) in enumerate(CATS[1:8]):
-            stacks = [s for s in self.bag if ITEMS[s["name"]]["cat"] == cat]
-            n = sum(s["count"] for s in stacks)
-            v = sum(s["count"] * s["value"] for s in stacks) * m
-            grand += v
-            r = pygame.Rect(x + 20, ry + i * 60, w - 40, 52)
+        self.tabs(x + 20, y + 66, [c[0] for c in CATS], 106)
+        cat = CATS[self.tab][1]
+        items = [s for s in self.bag if cat is None or ITEMS[s["name"]]["cat"] == cat]
+        items.sort(key=lambda s: (CAT_ORDER.index(ITEMS[s["name"]]["cat"]), s["name"], -s["value"]))
+        self.text(f"Your backpack: {self.count(self.bag)}/{self.bag_cap()} items      Sell price x{m:.2f}"
+                  "  (pets, VIP, upgrades and 2x Coins raise it)", (x + 24, y + 112), 20, (200, 220, 255))
+        rows, rh = 7, 58
+        maxs = max(0, len(items) - rows)
+        st = min(self.scroll, maxs)
+        if not items:
+            self.text("Nothing to sell here yet. Go fish, chop, dig, hunt and farm!", (x + w // 2, y + 300), 26, GREY, "c")
+        for k, s in enumerate(items[st:st + rows]):
+            it = ITEMS[s["name"]]
+            r = pygame.Rect(x + 20, y + 140 + k * rh, w - 40, rh - 6)
             pygame.draw.rect(self.screen, PANEL2, r, border_radius=10)
-            self.text(label, (r.x + 16, r.centery), 30, WHITE, "ml")
-            self.text(f"{n} items", (r.x + 220, r.centery), 24, (200, 210, 230), "ml")
-            self.text(f"{fmt(v)} coins", (r.right - 200, r.centery), 26, GOLD, "mr")
-            self.button((r.right - 170, r.y + 8, 150, 36), "SELL", lambda c=cat: self.sell(c), GREEN if n else PANEL3, n > 0)
-        self.button((x + w // 2 - 220, y + h - 92, 440, 64), f"SELL EVERYTHING  ({fmt(grand)} coins)", lambda: self.sell(None),
-                    GOLD, grand > 0, 32, BLACK)
+            pygame.draw.rect(self.screen, RCOL[it["rarity"]], (r.x, r.y, 6, r.h), border_radius=3)
+            if s["mut"]:
+                pygame.draw.circle(self.screen, MUTCOL.get(s["mut"], WHITE), (r.x + 34, r.centery), 22, 2)
+            self.icon(s["name"], r.x + 34, r.centery, 42)
+            self.text(self.iname(s), (r.x + 66, r.y + 6), 26, RCOL[it["rarity"]])
+            self.text(f"{it['rarity']} {it['cat']}", (r.x + 66, r.y + 30), 18, (170, 180, 205))
+            self.text(f"x{s['count']}", (r.x + 470, r.centery), 28, WHITE, "ml")
+            each = s["value"] * m
+            self.text(f"{fmt(each)}c each", (r.x + 560, r.centery), 22, GOLD, "ml")
+            self.text(f"= {fmt(each * s['count'])}c", (r.right - 170, r.centery), 22, (255, 230, 150), "mr")
+            self.button((r.right - 150, r.y + 7, 136, 38), "SELL", lambda s=s: self.open_sell(s), GREEN, size=24)
+        if maxs:
+            self.text(f"{st + 1}-{min(len(items), st + rows)} of {len(items)}", (x + 24, y + h - 48), 20, GREY)
+            if st > 0:
+                self.button((x + 130, y + h - 58, 44, 34), "^", lambda: setattr(self, "scroll", max(0, self.scroll - 1)), PANEL3)
+            if st < maxs:
+                self.button((x + 180, y + h - 58, 44, 34), "v", lambda: setattr(self, "scroll", min(maxs, self.scroll + 1)), PANEL3)
+        sellable = [s for s in items if cat is not None or ITEMS[s["name"]]["cat"] != "misc"]
+        n = sum(s["count"] for s in sellable)
+        v = sum(s["count"] * s["value"] for s in sellable) * m
+        label = "SELL EVERYTHING" if cat is None else f"SELL ALL {CATS[self.tab][0].upper()}"
+        self.button((x + w - 470, y + h - 62, 450, 46), f"{label}  ({n} items, {fmt(v)}c)",
+                    lambda c=cat: self.sell(c), GOLD, n > 0, 24, BLACK)
+        if self.sell_dlg:
+            self.draw_sell_dlg()
+
+    def open_sell(self, s):
+        self.sell_dlg = {"s": s, "n": 1}
+
+    def draw_sell_dlg(self):
+        d = self.sell_dlg
+        s = d["s"]
+        if s not in self.bag or s["count"] <= 0:
+            self.sell_dlg = None
+            return
+        self.buttons = []
+        d["n"] = max(1, min(d["n"], s["count"]))
+        n, m = d["n"], self.sell_mult()
+        dim = pygame.Surface((W, H), pygame.SRCALPHA)
+        dim.fill((0, 0, 0, 150))
+        self.screen.blit(dim, (0, 0))
+        r = pygame.Rect(W // 2 - 300, H // 2 - 190, 600, 380)
+        pygame.draw.rect(self.screen, PANEL, r, border_radius=18)
+        it = ITEMS[s["name"]]
+        pygame.draw.rect(self.screen, RCOL[it["rarity"]], r, 4, border_radius=18)
+        self.text("SELL HOW MANY?", (r.centerx, r.y + 34), 40, GOLD, "c")
+        self.icon(s["name"], r.x + 70, r.y + 112, 80)
+        self.text(self.iname(s), (r.x + 124, r.y + 80), 30, RCOL[it["rarity"]])
+        self.text(f"You have {s['count']}     {fmt(s['value'] * m)} coins each", (r.x + 124, r.y + 116), 22, WHITE)
+        cy = r.y + 190
+
+        def setn(v):
+            d["n"] = max(1, min(s["count"], v))
+        for lbl, dx_, fn in (("-10", -210, lambda: setn(n - 10)), ("-1", -140, lambda: setn(n - 1)),
+                             ("+1", 96, lambda: setn(n + 1)), ("+10", 166, lambda: setn(n + 10))):
+            self.button((r.centerx + dx_, cy - 22, 58, 44), lbl, fn, PANEL3, size=26)
+        pygame.draw.rect(self.screen, (20, 22, 34), (r.centerx - 70, cy - 26, 156, 52), border_radius=10)
+        self.text(str(n), (r.centerx + 8, cy), 40, WHITE, "c")
+        self.button((r.x + 40, cy + 40, 120, 34), "Just 1", lambda: setn(1), PANEL3, size=20)
+        self.button((r.x + 170, cy + 40, 120, 34), "Half", lambda: setn(max(1, s["count"] // 2)), PANEL3, size=20)
+        self.button((r.x + 300, cy + 40, 120, 34), "All but 1", lambda: setn(max(1, s["count"] - 1)), PANEL3, size=20)
+        self.button((r.x + 430, cy + 40, 130, 34), "Cancel", lambda: setattr(self, "sell_dlg", None), RED, size=20)
+        self.button((r.x + 30, r.bottom - 66, 260, 50), f"SELL {n}  (+{fmt(s['value'] * n * m)}c)",
+                    lambda: self.sell_stack(s, n), GREEN, size=24)
+        self.button((r.right - 290, r.bottom - 66, 260, 50), f"SELL ALL {s['count']}  (+{fmt(s['value'] * s['count'] * m)}c)",
+                    lambda: self.sell_stack(s, s["count"]), GOLD, size=22, tcol=BLACK)
+
+    def sell_stack(self, s, n):
+        n = max(1, min(n, s["count"]))
+        total = int(s["value"] * n * self.sell_mult())
+        s["count"] -= n
+        if s["count"] <= 0 and s in self.bag:
+            self.bag.remove(s)
+        self.coins += total
+        self.inc("sold", n)
+        self.note(f"Sold {n}x {self.iname(s)} for {fmt(total)} coins!", GOLD)
+        self.float_text(self.px, self.py - 40, f"+{fmt(total)} coins", GOLD, 30)
+        self.burst(self.px, self.py, GOLD, min(40, 8 + n), 180)
+        if total >= 1000:
+            self.do_banner("KA-CHING!", f"+{fmt(total)} coins", GOLD)
+        self.sell_dlg = None
 
     def menu_inv(self, chest=False):
         x, y, w, h = self.panel("HOME - STORAGE" if chest else "BACKPACK")
@@ -2806,7 +2829,7 @@ class Game:
         def grid(lst, gx, title, action, act_label):
             self.text(title, (gx, y + 110), 24, GOLD)
             items = [s for s in lst if cat is None or ITEMS[s["name"]]["cat"] == cat]
-            items.sort(key=lambda s: -s["value"] * s["count"])
+            items.sort(key=lambda s: (CAT_ORDER.index(ITEMS[s["name"]]["cat"]), s["name"], -s["value"]))
             cw = (area_w - (cols - 1) * 8) // cols
             maxrows = 6
             start = min(self.scroll, max(0, (len(items) - 1) // cols - maxrows + 1)) * cols
@@ -2818,9 +2841,9 @@ class Game:
                 hov = r.collidepoint(self.mouse)
                 pygame.draw.rect(self.screen, shade(PANEL2, 20 if hov else 0), r, border_radius=8)
                 pygame.draw.rect(self.screen, RCOL[it["rarity"]], r, 2, border_radius=8)
-                pygame.draw.circle(self.screen, it["color"], (cx + 18, cy + 22), 10)
                 if s["mut"]:
-                    pygame.draw.circle(self.screen, MUTCOL.get(s["mut"], WHITE), (cx + 18, cy + 22), 13, 2)
+                    pygame.draw.circle(self.screen, MUTCOL.get(s["mut"], WHITE), (cx + 18, cy + 26), 16, 2)
+                self.icon(s["name"], cx + 18, cy + 26, 30)
                 nm = self.iname(s)
                 while self.font(19).size(nm)[0] > cw - 40 and len(nm) > 4:
                     nm = nm[:-2]
